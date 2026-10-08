@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# framepass — control frame-autopass on the Steam Frame from your Mac over SSH.
+#
+# Part of the Nebulino/my-frame-autopass fork: a host-side convenience wrapper.
+# It does not change frame-autopass itself; it just drives the on-device
+# `autopass` CLI from your computer. See ../DIFFERENCES.md.
+#
+# Usage:
+#   framepass status                 Show the daemon state (pretty).
+#   framepass mode <auto|colour|ir>  Set passthrough mode.
+#   framepass update                 Update frame-autopass on the headset.
+#   framepass report                 Write a bug-report file on the headset.
+#   framepass guard reset            Clear the crash-guard pause.
+#   framepass uninstall [--purge]    Remove frame-autopass from the headset.
+#   framepass ssh                    Open an interactive shell on the Frame.
+#   framepass where                  Print the Frame host used.
+#
+# Target: $FRAME_SSH, else HOSTNAME/LAST_IP_ADDRESS from ~/.steam-frame.env,
+# else "frame". Override any time with FRAME_SSH=user@host.
+
+set -euo pipefail
+
+env_val() { [ -f "$HOME/.steam-frame.env" ] && grep -E "^$1=" "$HOME/.steam-frame.env" | head -1 | cut -d= -f2- || true; }
+
+resolve_host() {
+    local c h ip
+    if [ -n "${FRAME_SSH:-}" ]; then printf '%s\n' "$FRAME_SSH"; return; fi
+    for c in "$(env_val HOSTNAME)" "$(env_val LAST_IP_ADDRESS)" frame; do
+        [ -n "$c" ] || continue
+        if ssh -o BatchMode=yes -o ConnectTimeout=4 -o StrictHostKeyChecking=accept-new "$c" true 2>/dev/null; then
+            printf '%s\n' "$c"; return
+        fi
+    done
+    printf 'frame\n'
+}
+
+HOST="$(resolve_host)"
+AP='$HOME/.local/share/frame-autopass/autopass'
+# Run a subcommand on the headset with the real user service bus reachable.
+remote_ap() {
+    ssh -o BatchMode=yes -o ConnectTimeout=8 "$HOST" \
+        "export XDG_RUNTIME_DIR=/run/user/\$(id -u); export DBUS_SESSION_BUS_ADDRESS=unix:path=\$XDG_RUNTIME_DIR/bus; $AP $*"
+}
+
+pretty_status() {
+    python3 -c '
+import sys, json, re
+raw = sys.stdin.read()
+m = re.search(r"\{.*\}", raw, re.S)
+pre = raw[:m.start()].strip() if m else raw.strip()
+if pre: print(pre)
+if not m:
+    sys.exit(0)
+j = json.loads(m.group(0))
+order = ["mode","showing","passthrough","ir_emitters","tracking","standby",
+         "evidence","cooldown_s","can_switch","blocked","reason","pid","version"]
+for k in order:
+    if k in j: print(f"  {k:12} {j[k]}")
+'
+}
+
+cmd="${1:-status}"; shift || true
+case "$cmd" in
+    status)    remote_ap status | pretty_status ;;
+    mode)      [ $# -ge 1 ] || { echo "usage: framepass mode <auto|colour|ir>" >&2; exit 2; }
+               remote_ap mode "$1" ;;
+    update)    remote_ap update ;;
+    report)    remote_ap report ;;
+    guard)     remote_ap guard "$@" ;;
+    uninstall) remote_ap uninstall "$@" ;;
+    ssh)       exec ssh "$HOST" ;;
+    where)     echo "$HOST" ;;
+    -h|--help|help)
+        sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *)         echo "framepass: unknown command '$cmd' (try: framepass help)" >&2; exit 2 ;;
+esac

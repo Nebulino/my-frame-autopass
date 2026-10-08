@@ -1,5 +1,10 @@
 # frame-autopass
 
+> **About this fork:** this is **[Nebulino/my-frame-autopass](https://github.com/Nebulino/my-frame-autopass)**,
+> a fork of upstream **[bod09/frame-autopass](https://github.com/bod09/frame-autopass)**. The
+> on-headset programs are **unchanged** from upstream v0.2.0; this fork adds a host-side wrapper
+> (`wrapper/framepass`) and docs. See **[DIFFERENCES.md](DIFFERENCES.md)**.
+
 > **AI disclaimer:** built with the help of AI and tested on a single
 > headset. Treat it as experimental.
 
